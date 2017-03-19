@@ -107,12 +107,22 @@ object RNG {
 }
 
 case class State[S,+A](run: S => (A, S)) {
-  def map[B](f: A => B): State[S, B] =
-    ???
-  def map2[B,C](sb: State[S, B])(f: (A, B) => C): State[S, C] =
-    ???
-  def flatMap[B](f: A => State[S, B]): State[S, B] =
-    ???
+  def map[B](f: A => B): State[S, B] = State(s => {
+    val (a, s1) = run(s)
+    (f(a), s1)
+  })
+
+  def map2[B,C](sb: State[S, B])(f: (A, B) => C): State[S, C] = State(s => {
+    val (a, s1): (A, S) = this.run(s)
+    val (b, s2): (B, S) = sb.run(s1)
+    (f(a,b), s2)
+  })
+
+  def flatMap[B](f: A => State[S, B]): State[S, B] = State(s => {
+    val (a, s1): (A, S) = this.run(s)
+    f(a).run(s1)
+  })
+
 }
 
 sealed trait Input
@@ -122,6 +132,48 @@ case object Turn extends Input
 case class Machine(locked: Boolean, candies: Int, coins: Int)
 
 object State {
+  def unit[S,A](a: A): State[S,A] = State(s => (a, s))
+
+  def modify[S](f: S => S): State[S, Unit] = State(s => ((), f(s)))
+
+  //  def sequence[S,A](list: List[State[S,A]]): State[S,List[A]] = list.headOption match {
+//    case None => State.unit(List.empty[A])
+//    case Some(state) => State(s => {
+//      val (a, s1) = state.run(s)
+//      val (as, s2) = sequence(list.tail).run(s1)
+//      (a :: as, s2)
+//    })
+//  }
+
+  // cleaner solution using foldRight:
+  def sequence[S,A](list: List[State[S,A]]): State[S,List[A]] =
+    list.foldRight(unit[S,List[A]](List.empty[A]))((f, acc) => f.map2(acc)(_ :: _))
+
+  // work through the tail recursive version ...
+
+  def updateMachine(machine: Machine, input: Input): Machine = input match {
+    case Coin =>
+      if (machine.locked && machine.candies > 0) machine.copy(locked = false, coins = machine.coins + 1)
+      else machine
+    case Turn =>
+      if (!machine.locked && machine.candies > 0) machine.copy(locked = true, candies = machine.candies - 1)
+      else machine
+  }
+  def getMachineValues(machine: Machine): (Int, Int) = (machine.coins, machine.candies)
+
+  def simulateMachine(input: List[Input]): State[Machine, (Int, Int)] = for {
+    run <- sequence(input map (i => modify((m: Machine) => updateMachine(m, i)))) flatMap (_ => State[Machine, Machine](m => (m, m)))
+  } yield getMachineValues(run)
+
   type Rand[A] = State[RNG, A]
-  def simulateMachine(inputs: List[Input]): State[Machine, (Int, Int)] = ???
+
+
+//  def simulateMachine(inputs: List[Input]): State[Machine, (Int, Int)] = inputs.headOption match {
+//    case None => State(m => ((m.coins, m.candies), m))
+//    case Some(Coin) => modify[Machine] { m =>
+//      if (m.locked && m.candies > 0) m.copy(locked = false)
+//      else m
+//    }
+//    case Some(Turn) => ???
+//  }
 }
