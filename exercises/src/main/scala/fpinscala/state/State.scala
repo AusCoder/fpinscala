@@ -30,23 +30,80 @@ object RNG {
       (f(a), rng2)
     }
 
-  def nonNegativeInt(rng: RNG): (Int, RNG) = ???
+  def nonNegativeInt(rng: RNG): (Int, RNG) = if (rng.nextInt._1 < 0) (rng.nextInt._1 + Integer.MAX_VALUE + 1, rng.nextInt._2) else rng.nextInt
 
-  def double(rng: RNG): (Double, RNG) = ???
+  def double: Rand[Double] = map(nonNegativeInt)(x => x.toDouble / Integer.MAX_VALUE)
 
-  def intDouble(rng: RNG): ((Int,Double), RNG) = ???
+  def double_old(rng: RNG): (Double, RNG) = {
+    val (int, seed) = nonNegativeInt(rng)
+    (int.toDouble / Integer.MAX_VALUE, seed)
+  }
 
-  def doubleInt(rng: RNG): ((Double,Int), RNG) = ???
+  def intDouble_old(rng: RNG): ((Int,Double), RNG) = {
+    val (int, seed) = rng.nextInt
+    ((int, double(rng)._1), seed)
+  }
 
-  def double3(rng: RNG): ((Double,Double,Double), RNG) = ???
+  def intDouble(rng: RNG): ((Int, Double), RNG) = {
+    both(nonNegativeInt, double)(rng)
+  }
 
-  def ints(count: Int)(rng: RNG): (List[Int], RNG) = ???
+  def doubleInt(rng: RNG): ((Double,Int), RNG) = {
+    val (pair, seed) = intDouble(rng)
+    ((pair._2, pair._1), seed)
+  }
 
-  def map2[A,B,C](ra: Rand[A], rb: Rand[B])(f: (A, B) => C): Rand[C] = ???
+  def double3(rng: RNG): ((Double,Double,Double), RNG) = {
+    val (d1, s1) = double(rng)
+    val (d2, s2) = double(s1)
+    val (d3, s3) = double(s2)
+    ((d1, d2, d3), s3)
+  }
 
-  def sequence[A](fs: List[Rand[A]]): Rand[List[A]] = ???
+  def ints_old(count: Int)(rng: RNG): (List[Int], RNG) = {
+    if (count <= 0) (List.empty[Int], rng)
+    else {
+      val (x, s1) = rng.nextInt
+      val (xs, s2) = ints_old(count-1)(s1)
+      (x :: xs, s2)
+    }
+  }
 
-  def flatMap[A,B](f: Rand[A])(g: A => Rand[B]): Rand[B] = ???
+  def ints(count: Int): Rand[List[Int]] = sequence(List.fill(count)(rng => rng.nextInt))
+
+  def map2[A,B,C](ra: Rand[A], rb: Rand[B])(f: (A, B) => C): Rand[C] = rng => {
+    val (a, rng_a) = ra(rng)
+    val (b, rng_b) = rb(rng_a)
+    (f(a,b), rng_b)
+  }
+
+  def both[A,B](ra: Rand[A], rb: Rand[B]): Rand[(A,B)] = map2(ra,rb)((_,_))
+
+  def sequence[A](fs: List[Rand[A]]): Rand[List[A]] = rng => {
+    fs.headOption match {
+      case None => (List.empty[A], rng)
+      case Some(rand) => {
+        val (a, rng1) = rand(rng)
+        val (as, rng2) = sequence(fs.tail)(rng1)
+        (a :: as, rng2)
+      }
+    }
+  }
+
+  def flatMap[A,B](f: Rand[A])(g: A => Rand[B]): Rand[B] = rng => {
+    val (a, rng2) = f(rng)
+    g(a)(rng2)
+  }
+
+  def nonNegativeLessThan(n: Int): Rand[Int] = flatMap(nonNegativeInt)(x => {
+    val mod = x % n
+    if (x + (n-1) - mod >= 0) unit(mod)
+    else nonNegativeLessThan(n)
+  })
+
+  def mapViaFlatMap[A,B](s: Rand[A])(f: A => B): Rand[B] = flatMap(s)(a => unit(f(a)))
+
+  def map2ViaFlatMap[A,B,C](ra: Rand[A], rb: Rand[B])(f: (A,B) => C): Rand[C] = flatMap(ra)(a => flatMap(rb)(b => unit(f(a,b))))
 }
 
 case class State[S,+A](run: S => (A, S)) {

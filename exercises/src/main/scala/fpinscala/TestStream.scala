@@ -2,7 +2,7 @@ package fpinscala
 
 import fpinscala.laziness._
 
-object Test extends App {
+object TestStream extends App {
   val xs = Stream(1, 2, 3, 4, 5, 6, 7, 8, 9)
   val ys = Stream(10,20,30,40,50)
   val zs = Stream(1,2,3,4)

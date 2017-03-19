@@ -51,12 +51,12 @@ trait Stream[+A] {
     stream.headOption.flatMap(a => if (p(a))  Option(a, stream drop 1) else None)
   })
 
-  def zipWith[B](s2: Stream[B]): Stream[(Option[A], Option[B])] =
-    Stream.unfold((this, s2))({
-      case (s1, s2) =>
-        if (s1.headOption.isEmpty && s2.headOption.isEmpty) None
-        else Option((s1.headOption, s2.headOption), (s1 drop 1, s2 drop 1))
-    })
+//  def zipWith[B](s2: Stream[B]): Stream[(Option[A], Option[B])] =
+//    Stream.unfold((this, s2))({
+//      case (s1, s2) =>
+//        if (s1.headOption.isEmpty && s2.headOption.isEmpty) None
+//        else Option((s1.headOption, s2.headOption), (s1 drop 1, s2 drop 1))
+//    })
 
   def forAll(p: A => Boolean): Boolean = this.foldRight(true)((a, b) => p(a) && b)
 
