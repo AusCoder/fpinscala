@@ -29,10 +29,18 @@ object Par {
       def call = a(es).get
     })
 
-  def map[A,B](pa: Par[A])(f: A => B): Par[B] = 
+  def lazyUnit[A](a: => A): Par[A] = fork(unit(a))
+
+  def asyncF[A,B](f: A => B): A => Par[B] = a => lazyUnit(f(a))
+
+  def map[A,B](pa: Par[A])(f: A => B): Par[B] =
     map2(pa, unit(()))((a,_) => f(a))
 
   def sortPar(parList: Par[List[Int]]) = map(parList)(_.sorted)
+
+  // if map2 implements timeouts correctly, then this also will implement timeouts correctly.
+  // this is part of the power of building up using combinators
+  def sequence[A](ps: List[Par[A]]): Par[List[A]] = ps.foldRight(unit(List.empty[A]))((pa, pl) => map2(pa, pl)(_::_))
 
   def equal[A](e: ExecutorService)(p: Par[A], p2: Par[A]): Boolean = 
     p(e).get == p2(e).get
