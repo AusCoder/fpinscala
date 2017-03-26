@@ -1,6 +1,8 @@
 package fpinscala.parallelism
 
 import java.util.concurrent._
+import java.util.concurrent.atomic.AtomicReference
+
 import language.implicitConversions
 
 object Par {
@@ -22,7 +24,7 @@ object Par {
   // We can always do `fork(map2(a,b)(f))` if we want the evaluation of `f` to occur in a separate thread.
   def map2[A,B,C](a: Par[A], b: Par[B])(f: (A,B) => C): Par[C] =
     (es: ExecutorService) => {
-      val af = a(es) 
+      val af = a(es)
       val bf = b(es)
       UnitFuture(f(af.get, bf.get))
     }
@@ -55,6 +57,18 @@ object Par {
   // if map2 implements timeouts correctly, then this also will implement timeouts correctly.
   // this is part of the power of building up using combinators
   def sequence[A](ps: List[Par[A]]): Par[List[A]] = ps.foldRight(unit(List.empty[A]))((pa, pl) => map2(pa, pl)(_::_))
+
+  def parMap[A,B](ps: List[A], f: A => B): Par[List[B]] = {
+    val pars: List[Par[B]] = ps.map(asyncF(f))
+    sequence(pars)
+  }
+
+  def parFilter[A](ps: List[A], f: A => Boolean): Par[List[A]] = {
+    val filtered: List[Par[List[A]]] = ps map {
+      asyncF((a: A) => if (f(a)) List(a) else List.empty[A])
+    }
+    map(sequence(filtered))(_.flatten)
+  }
 
   def equal[A](e: ExecutorService)(p: Par[A], p2: Par[A]): Boolean = 
     p(e).get == p2(e).get
