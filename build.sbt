@@ -1,5 +1,9 @@
 val commonSettings = Seq(
-  scalaVersion := "2.12.1"
+  scalaVersion := "2.12.1",
+  libraryDependencies := Seq(
+    "org.scalaz" %% "scalaz-core",
+    "org.scalaz" %% "scalaz-concurrent"
+  ).map(_ % "7.2.8")
 )
 
 lazy val root = (project in file("."))
