@@ -7,7 +7,8 @@ import language.implicitConversions
 
 object Par {
   type Par[A] = ExecutorService => Future[A]
-  
+
+  // this implementation may deadlock
   def run[A](s: ExecutorService)(a: Par[A]): Future[A] = a(s)
 
   def unit[A](a: A): Par[A] = (es: ExecutorService) => UnitFuture(a) // `unit` is represented as a function that returns a `UnitFuture`, which is a simple implementation of `Future` that just wraps a constant value. It doesn't use the `ExecutorService` at all. It's always done and can't be cancelled. Its `get` method simply returns the value that we gave it.
@@ -80,6 +81,23 @@ object Par {
     es => 
       if (run(es)(cond).get) t(es) // Notice we are blocking on the result of `cond`.
       else f(es)
+
+  def choiceN[A](n: Par[Int])(choices: List[Par[A]]): Par[A] = es => {
+    val idx = run(es)(n).get
+    choices(idx)(es)
+  }
+
+  def choiceViaChoiceN[A](cond: Par[Boolean])(t: Par[A], f: Par[A]): Par[A] = {
+    val n = map(cond)(b => if (b) 0 else 1)
+    val choices = List(t, f)
+    choiceN(n)(choices)
+  }
+
+  def flatMap[A,B](pa: Par[A])(fs: A => Par[B]): Par[B] =
+    es => run(es)(fs(run(es)(pa).get))
+
+  def join[A](ppa: Par[Par[A]]): Par[A] =
+    es => run(es)(run(es)(ppa).get())
 
   /* Gives us infix syntax for `Par`. */
   implicit def toParOps[A](p: Par[A]): ParOps[A] = new ParOps(p)
