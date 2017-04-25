@@ -30,7 +30,10 @@ object RNG {
       (f(a), rng2)
     }
 
-  def nonNegativeInt(rng: RNG): (Int, RNG) = if (rng.nextInt._1 < 0) (rng.nextInt._1 + Integer.MAX_VALUE + 1, rng.nextInt._2) else rng.nextInt
+  def nonNegativeInt(rng: RNG): (Int, RNG) = {
+    if (rng.nextInt._1 < 0) (rng.nextInt._1 + Integer.MAX_VALUE + 1, rng.nextInt._2)
+    else rng.nextInt
+  }
 
   def double: Rand[Double] = map(nonNegativeInt)(x => x.toDouble / Integer.MAX_VALUE)
 
@@ -136,7 +139,7 @@ object State {
 
   def modify[S](f: S => S): State[S, Unit] = State(s => ((), f(s)))
 
-  //  def sequence[S,A](list: List[State[S,A]]): State[S,List[A]] = list.headOption match {
+//  def sequence[S,A](list: List[State[S,A]]): State[S,List[A]] = list.headOption match {
 //    case None => State.unit(List.empty[A])
 //    case Some(state) => State(s => {
 //      val (a, s1) = state.run(s)
@@ -166,14 +169,5 @@ object State {
   } yield getMachineValues(run)
 
   type Rand[A] = State[RNG, A]
-
-
-//  def simulateMachine(inputs: List[Input]): State[Machine, (Int, Int)] = inputs.headOption match {
-//    case None => State(m => ((m.coins, m.candies), m))
-//    case Some(Coin) => modify[Machine] { m =>
-//      if (m.locked && m.candies > 0) m.copy(locked = false)
-//      else m
-//    }
-//    case Some(Turn) => ???
-//  }
+  
 }
