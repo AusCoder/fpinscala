@@ -106,6 +106,19 @@ trait Stream[+A] {
     }
 
   def zipWith[B](str: Stream[B]): Stream[(Option[A], Option[B])] = this.zipWithAll(str)((_,_))
+
+  def zip[B](s2: Stream[B]): Stream[(A, B)] = {
+    val streamOfOpt: Stream[Option[(A, B)]] = this.zipWithAll(s2) {
+      case (o1, o2) => for {
+        x <- o1
+        y <- o2
+      } yield (x, y)
+    }
+    streamOfOpt flatMap {
+      case None => Stream.empty[(A, B)]
+      case Some(x) => Stream(x)
+    }
+  }
 }
 case object Empty extends Stream[Nothing]
 case class Cons[+A](h: () => A, t: () => Stream[A]) extends Stream[A]

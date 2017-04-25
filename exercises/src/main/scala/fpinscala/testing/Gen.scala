@@ -20,21 +20,68 @@ sum: List[Int] -> Int should satisfy:
   - sum(l) + sum(k) == sum(l ++ k)
  */
 
-trait Prop {
-//  def check: Either[(FailedCase, SuccessCount), SuccessCount]
-  def check: Boolean
-
-  def &&(rhs: Prop): Prop = if (this.check) rhs else this
+sealed trait Result {
+  def isFailed: Boolean = this match {
+    case Passed => false
+    case Falsified(_, _) => true
+  }
 }
+case object Passed extends Result
+case class Falsified(failed: FailedCase, success: SuccessCount) extends Result
+
+case class Prop(run: (TestCases, RNG) => Result) {
+  def &&(rhs: Prop): Prop = Prop {
+    (n, rng) => {
+      val thisResult = this.run(n, rng)
+      if (thisResult.isFailed) thisResult else rhs.run(n, rng) // modify failed string to include which side failed.
+    }
+  }
+  def ||(rhs: Prop): Prop = ???
+}
+
+//trait Prop {
+//  def check: Either[(FailedCase, SuccessCount), SuccessCount]
+//  def &&(rhs: Prop): Prop = if (this.check.isLeft) rhs else this
+//}
 
 object Prop {
   type FailedCase = String
   type SuccessCount = Int
+  type TestCases = Int
 
-  def forAll[A](gen: Gen[A])(f: A => Boolean): Prop = ???
+  def forAll[A](gen: Gen[A])(f: A => Boolean): Prop = Prop {
+    (n, rng) => {
+      randomStream(gen)(rng).zip(Stream.from(0)).take(n).map {
+        case (a, idx) => {
+          try {
+            if (f(a)) Passed else Falsified(s"failed case: $a", idx)
+          } catch { case e: Exception => Falsified(buildMsg(a, e), idx) }
+        }
+      }.find(_.isFailed).getOrElse(Passed)
+    }
+  }
+
+  def randomStream[A](g: Gen[A])(rng: RNG): Stream[A] =
+    Stream.unfold(rng)(r => Some(g.sample.run(r)))
+
+  def buildMsg[A](a: A, e: Exception): String =
+    s"test case: $a\n" +
+    s"generated an exception: ${e.getMessage}\n" +
+    s"stack trace: ${e.getStackTrace.mkString("\n")}"
 }
 
-case class Gen[A](sample: State[RNG, A])
+case class Gen[A](sample: State[RNG, A]) {
+  def flatMap[B](f: A => Gen[B]): Gen[B] = {
+    val state: State[RNG, B] = this.sample.flatMap(a => f(a).sample)
+    Gen(state)
+  }
+  def listOfN(size: Gen[Int]): Gen[List[A]] = {
+    size.flatMap(n => {
+      val states: List[State[RNG, A]] = List.fill(n)(this.sample)
+      Gen(State.sequence(states))
+    })
+  }
+}
 
 object Gen {
   def unit[A](a: => A): Gen[A] = {
@@ -80,13 +127,18 @@ object Gen {
   def intPair(g: Gen[Int]): Gen[(Int, Int)] = {
     pair(g)
   }
-
   def option[A](g: Gen[A]): Gen[Option[A]] = {
     map2(Gen.choose(0,2), g) {
       case (n, x) => {
         if (n == 0) None
         else Some(x)
       }
+    }
+  }
+  def union[A](g1: Gen[A], g2: Gen[A]): Gen[A] = {
+    Gen.choose(0,2).flatMap {
+      case 0 => g1
+      case 1 => g2
     }
   }
 }

@@ -14,7 +14,6 @@ object TestTesting {
     printed.run(simple3)
     printed.run(simple3)
     printed.run(simple4)
-    printed.run(simple5)
 
     val genInt = Gen.choose(0, 100)
     val genIntPair = Gen.intPair(genInt)
@@ -33,5 +32,11 @@ object TestTesting {
     printedOpt run simple3
     printedOpt run simple4
     printedOpt run simple5
+
+    val genUnion = Gen.union(genInt, genInt2)
+    val printedGenUnion = genUnion.sample map println
+    printedGenUnion run simple3
+    printedGenUnion run simple4
+    printedGenUnion run simple5
   }
 }

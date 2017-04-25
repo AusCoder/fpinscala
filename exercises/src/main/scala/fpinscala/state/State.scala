@@ -169,5 +169,5 @@ object State {
   } yield getMachineValues(run)
 
   type Rand[A] = State[RNG, A]
-  
+
 }
