@@ -23,41 +23,64 @@ sum: List[Int] -> Int should satisfy:
 sealed trait Result {
   def isFailed: Boolean = this match {
     case Passed => false
-    case Falsified(_, _) => true
+    case Falsified(_, _, _) => true
+    case Proved => false
   }
 }
 case object Passed extends Result
-case class Falsified(failed: FailedCase, success: SuccessCount) extends Result
+case object Proved extends Result
+case class Falsified(failed: FailedCase, success: SuccessCount, tags: List[String]) extends Result
 
-case class Prop(run: (TestCases, RNG) => Result) {
+case class Prop(run: (MaxSize, TestCases, RNG) => Result) {
   def &&(rhs: Prop): Prop = Prop {
-    (n, rng) => {
-      val thisResult = this.run(n, rng)
-      if (thisResult.isFailed) thisResult else rhs.run(n, rng) // modify failed string to include which side failed.
+      (m: MaxSize, n: TestCases, rng: RNG) => {
+        val thisResult = this.run(m, n, rng)
+        thisResult match {
+          case Passed => rhs.run(m, n, rng) match {
+            case Passed => Passed
+            case Falsified(f, s, l) => Falsified(f, s, "right hand side failed" :: l)
+          }
+          case Falsified(f, s, l) => Falsified(f, s, "left has side failed" :: l)
+        }
+      }
     }
-  }
   def ||(rhs: Prop): Prop = ???
 }
-
-//trait Prop {
-//  def check: Either[(FailedCase, SuccessCount), SuccessCount]
-//  def &&(rhs: Prop): Prop = if (this.check.isLeft) rhs else this
-//}
 
 object Prop {
   type FailedCase = String
   type SuccessCount = Int
   type TestCases = Int
+  type MaxSize = Int
 
+  /* forAll for a standard Gen, ignores max case size */
   def forAll[A](gen: Gen[A])(f: A => Boolean): Prop = Prop {
-    (n, rng) => {
+    (_, n, rng) => {
       randomStream(gen)(rng).zip(Stream.from(0)).take(n).map {
         case (a, idx) => {
           try {
-            if (f(a)) Passed else Falsified(s"failed case: $a", idx)
-          } catch { case e: Exception => Falsified(buildMsg(a, e), idx) }
+            if (f(a)) Passed else Falsified(s"failed case: $a", idx, List.empty[String])
+          }
+          catch { case e: Exception => Falsified(buildMsg(a, e), idx, List.empty[String]) }
         }
       }.find(_.isFailed).getOrElse(Passed)
+    }
+  }
+
+  def forAll[A](g: SGen[A])(f: A => Boolean): Prop = forAll(g.forSize)(f)
+
+  def forAll[A](g: Int => Gen[A])(f: A => Boolean): Prop = Prop {
+    (m, n, rng) => {
+      // always at least one case case, and approx equal test cases per size
+      val casesPerSize: Int = (n + m - 1) / m
+      // get props of all sizes up to m, but no more props that number of test cases
+      val props: Stream[Prop] = Stream.from(0).take((n min m) + 1).map(size => forAll(g(size))(f))
+      // for each prop, run with num cases for that prop, reduce them to single prop.
+      val prop: Prop = props.map(p => Prop { (max, _, rng) =>
+        p.run(max, casesPerSize, rng)
+      }).toList.reduce(_ && _)
+      // run the prop
+      prop.run(m, n, rng)
     }
   }
 
@@ -68,12 +91,34 @@ object Prop {
     s"test case: $a\n" +
     s"generated an exception: ${e.getMessage}\n" +
     s"stack trace: ${e.getStackTrace.mkString("\n")}"
+
+  def run(p: Prop,
+         maxSize: Int = 100,
+         testCases: Int = 100,
+         rng: RNG = RNG.Simple(System.currentTimeMillis)): Unit = {
+    p.run(maxSize, testCases, rng) match {
+      case Falsified(msg, n, _) =>
+        println(s"! Falsified after $n passed tests:\n $msg")
+      case Passed =>
+        println(s"+ OK, pass $testCases tests.")
+      case Proved =>
+        println(s"+ OK, property proved.")
+    }
+  }
+
+  def check(p: => Boolean): Prop = {
+    lazy val result = p
+    forAll(unit(()))(_ => result)
+  }
 }
 
-case class Gen[A](sample: State[RNG, A]) {
+case class Gen[+A](sample: State[RNG, A]) {
   def flatMap[B](f: A => Gen[B]): Gen[B] = {
     val state: State[RNG, B] = this.sample.flatMap(a => f(a).sample)
     Gen(state)
+  }
+  def map[B](f: A => B): Gen[B] = {
+    this.flatMap(a => Gen.unit(f(a)))
   }
   def listOfN(size: Gen[Int]): Gen[List[A]] = {
     size.flatMap(n => {
@@ -81,6 +126,7 @@ case class Gen[A](sample: State[RNG, A]) {
       Gen(State.sequence(states))
     })
   }
+  def unsized: SGen[A] = SGen(_ => this)
 }
 
 object Gen {
@@ -96,7 +142,7 @@ object Gen {
     Gen(State(r))
   }
   def listOfN[A](n: Int, g: Gen[A]): Gen[List[A]] = {
-    val samps: List[Gen[A]] = (1 to n).toList.map(_ => g)
+    val samps: List[Gen[A]] = List.fill(n)(g)
     Gen.sequence(samps)
   }
   def list[A](g: Gen[A]): Gen[List[A]] = {
@@ -148,7 +194,30 @@ object Gen {
 //  def flatMap[A,B](f: A => Gen[B]): Gen[B] = ???
 //}
 
-trait SGen[+A] {
-
+case class SGen[+A](forSize: Int => Gen[A]) {
+  def flatMap[B](f: A => SGen[B]): SGen[B] = {
+    SGen(n => this.forSize(n).flatMap(a => f(a).forSize(n)))
+  }
+  def map[B](f: A => B): SGen[B] = {
+    SGen(n => this.forSize(n).map(a => f(a)))
+  }
 }
+
+object SGen {
+  def listOf[A](g: Gen[A]): SGen[List[A]] = {
+    def go(n: Int): Gen[List[A]] = Gen.sequence(List.fill(n)(g))
+    SGen(go)
+  }
+  def listOf1[A](g: Gen[A]): SGen[List[A]] = {
+    def go(n: Int): Gen[List[A]] = for {
+      a <- g
+      l <- listOf(g).forSize(n)
+    } yield a :: l
+    SGen(go)
+  }
+}
+
+//trait SGen[+A] {
+//
+//}
 
