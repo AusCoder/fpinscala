@@ -39,6 +39,14 @@ case class Prop(run: (MaxSize, TestCases, RNG) => Result) {
           case Passed => rhs.run(m, n, rng) match {
             case Passed => Passed
             case Falsified(f, s, l) => Falsified(f, s, "right hand side failed" :: l)
+            case Proved => Passed
+          }
+          case Proved => {
+            rhs.run(m, n, rng) match {
+              case Passed => Passed
+              case Falsified(f, s, l) => Falsified(f, s, "right hand side failed" :: l)
+              case Proved => Proved
+            }
           }
           case Falsified(f, s, l) => Falsified(f, s, "left has side failed" :: l)
         }
@@ -84,6 +92,18 @@ object Prop {
     }
   }
 
+  val S: Gen[ExecutorService] = Gen.weighted(
+    choose(1,4).map(Executors.newFixedThreadPool) -> 0.75,
+    unit(Executors.newCachedThreadPool) -> 0.25
+  )
+
+  def forAllPar[A](gen: Gen[A])(f: A => Par[Boolean]): Prop = {
+    val g  = Gen.map2(S, gen)((_, _))
+    forAll(g) {
+      case (es, a) => f(a)(es).get
+    }
+  }
+
   def randomStream[A](g: Gen[A])(rng: RNG): Stream[A] =
     Stream.unfold(rng)(r => Some(g.sample.run(r)))
 
@@ -106,9 +126,9 @@ object Prop {
     }
   }
 
-  def check(p: => Boolean): Prop = {
-    lazy val result = p
-    forAll(unit(()))(_ => result)
+// TODO: prove properties with a finite domain.
+  def check(p: => Boolean): Prop = Prop { (_, _, _) =>
+    if (p) Proved else Falsified("()", 0, List.empty)
   }
 }
 
@@ -185,6 +205,14 @@ object Gen {
     Gen.choose(0,2).flatMap {
       case 0 => g1
       case 1 => g2
+    }
+  }
+  def weighted[A](g1: (Gen[A], Double), g2: (Gen[A], Double)): Gen[A] = {
+    val total = g1._2 + g2._2
+    val fract = Gen.choose(0, 100).map(_.toDouble).map(_ / 100).map(_ * total)
+    fract.flatMap {
+      case x if x < g1._2 => g1._1
+      case _              => g2._1
     }
   }
 }

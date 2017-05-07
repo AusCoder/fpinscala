@@ -1,5 +1,8 @@
 package fpinscala
 
+import java.util.concurrent.{ExecutorService, Executors}
+
+import fpinscala.parallelism.Par
 import fpinscala.state._
 import fpinscala.testing._
 import fpinscala.testing.SGen._
@@ -58,5 +61,14 @@ object TestTesting {
     }
     run(sortedProp)
 
+    val es: ExecutorService = Executors.newCachedThreadPool()
+    val parProp = Prop.check {
+      val p1 = Par.unit(2)
+      val p2 = Par.map(Par.unit(1))(_ + 1)
+      p1(es).get == p2(es).get
+    }
+    run(parProp)
+
+    val parProp2 = Prop.forAllPar()
   }
 }
