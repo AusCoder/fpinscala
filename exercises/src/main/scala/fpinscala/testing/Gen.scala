@@ -98,8 +98,7 @@ object Prop {
   )
 
   def forAllPar[A](gen: Gen[A])(f: A => Par[Boolean]): Prop = {
-    val g  = Gen.map2(S, gen)((_, _))
-    forAll(g) {
+    forAll(S ** gen) {
       case (es, a) => f(a)(es).get
     }
   }
@@ -147,6 +146,10 @@ case class Gen[+A](sample: State[RNG, A]) {
     })
   }
   def unsized: SGen[A] = SGen(_ => this)
+
+  def **[B](g: Gen[B]): Gen[(A, B)] = {
+    Gen.map2(this, g)((_, _))
+  }
 }
 
 object Gen {

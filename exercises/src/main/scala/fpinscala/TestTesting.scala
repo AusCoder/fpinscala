@@ -3,6 +3,7 @@ package fpinscala
 import java.util.concurrent.{ExecutorService, Executors}
 
 import fpinscala.parallelism.Par
+import fpinscala.parallelism.Par.Par
 import fpinscala.state._
 import fpinscala.testing._
 import fpinscala.testing.SGen._
@@ -69,6 +70,23 @@ object TestTesting {
     }
     run(parProp)
 
-    val parProp2 = Prop.forAllPar()
+    def parEqual[A](p1: Par[A], p2: Par[A]): Par[Boolean] = {
+      Par.map2(p1, p2)(_ == _)
+    }
+
+    val parProp2 = Prop.forAllPar(genInt)(
+      x => {
+        val mapped = Par.map(Par.unit(x))(_ + 1)
+        parEqual(Par.unit(x + 1), mapped)
+      }
+    )
+    run(parProp2)
+
+    val pint: Gen[Par[Int]] = Gen.choose(0, 100).map(Par.unit)
+    val ppint = Gen.choose(0, 100).map(x => Par.lazyUnit(x))
+    val mapLaw = Prop.forAllPar(ppint)(
+      x => parEqual(Par.map(x)(y => y), x)
+    )
+    run(mapLaw)
   }
 }
